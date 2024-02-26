@@ -72,16 +72,16 @@ module testbench();
      end
 endmodule // testbench
 
-module riscvsingle (input  logic        clk, reset,
+module riscvsingle (input logic clk, reset, //just under top of the modules, instantiates logic modules for controllers, and datapath signals 
 		    output logic [31:0] PC,
 		    input  logic [31:0] Instr,
 		    output logic 	MemWrite,
 		    output logic [31:0] ALUResult, WriteData,
 		    input  logic [31:0] ReadData);
    
-   logic 				ALUSrc, RegWrite, Jump, Zero;
-   logic [1:0] 				ResultSrc, ImmSrc;
-   logic [2:0] 				ALUControl;
+   logic ALUSrc, RegWrite, Jump, Zero;
+   logic [1:0] ResultSrc, ImmSrc;
+   logic [2:0] ALUControl;
    
    controller c (Instr[6:0], Instr[14:12], Instr[30], Zero,
 		 ResultSrc, MemWrite, PCSrc,
@@ -95,7 +95,7 @@ module riscvsingle (input  logic        clk, reset,
    
 endmodule // riscvsingle
 
-module controller (input  logic [6:0] op,
+module controller (input  logic [6:0] op, //controller instantiates the controller logic, along with the main decoder and alu decoder
 		   input  logic [2:0] funct3,
 		   input  logic       funct7b5,
 		   input  logic       Zero,
@@ -106,8 +106,8 @@ module controller (input  logic [6:0] op,
 		   output logic [1:0] ImmSrc,
 		   output logic [2:0] ALUControl);
    
-   logic [1:0] 			      ALUOp;
-   logic 			      Branch;
+   logic [1:0] ALUOp;
+   logic Branch;
    
    maindec md (op, ResultSrc, MemWrite, Branch,
 	       ALUSrc, RegWrite, Jump, ImmSrc, ALUOp);
@@ -116,7 +116,7 @@ module controller (input  logic [6:0] op,
    
 endmodule // controller
 
-module maindec (input  logic [6:0] op,
+module maindec (input  logic [6:0] op, //main decoder takes logic and makes an 11 bit controller signal which takes in the opcode and sets the corresponding control values based on the opcode.
 		output logic [1:0] ResultSrc,
 		output logic 	   MemWrite,
 		output logic 	   Branch, ALUSrc,
@@ -143,7 +143,7 @@ module maindec (input  logic [6:0] op,
    
 endmodule // maindec
 
-module aludec (input  logic       opb5,
+module aludec (input  logic       opb5, //alu decoder takes in logic from instruction required by the alu, then sets the alu to perform the specified operation based on brancing logic in case statements.
 	       input  logic [2:0] funct3,
 	       input  logic 	  funct7b5,
 	       input  logic [1:0] ALUOp,
@@ -170,7 +170,7 @@ module aludec (input  logic       opb5,
    
 endmodule // aludec
 
-module datapath (input  logic        clk, reset,
+module datapath (input logic clk, reset,
 		 input  logic [1:0]  ResultSrc,
 		 input  logic 	     PCSrc, ALUSrc,
 		 input  logic 	     RegWrite,
@@ -187,6 +187,7 @@ module datapath (input  logic        clk, reset,
    logic [31:0] 		     SrcA, SrcB;
    logic [31:0] 		     Result;
    
+   //adds the connections to the modules that make up the single cycle cpu such as the register file, pc counter register, pc add + 4, and pc add branch, and sign extension, and srcbmux, and the alu, and the result mux from the alu
    // next PC logic
    flopr #(32) pcreg (clk, reset, PCNext, PC);
    adder  pcadd4 (PC, 32'd4, PCPlus4);
@@ -203,14 +204,14 @@ module datapath (input  logic        clk, reset,
 
 endmodule // datapath
 
-module adder (input  logic [31:0] a, b,
+module adder (input  logic [31:0] a, b, //module for addition operation in the alu
 	      output logic [31:0] y);
    
    assign y = a + b;
    
 endmodule
 
-module extend (input  logic [31:7] instr,
+module extend (input  logic [31:7] instr, //module for sign extension operation, has different types depending on the instruction type.
 	       input  logic [1:0]  immsrc,
 	       output logic [31:0] immext);
    
@@ -269,7 +270,7 @@ module mux3 #(parameter WIDTH = 8)
    
 endmodule // mux3
 
-module top (input  logic        clk, reset,
+module top (input  logic        clk, reset, //the top module where everything starts. all the big stuff is instantiated here. like rv32single, imem, and dmem.
 	    output logic [31:0] WriteData, DataAdr,
 	    output logic 	MemWrite);
    
@@ -278,11 +279,12 @@ module top (input  logic        clk, reset,
    // instantiate processor and memories
    riscvsingle rv32single (clk, reset, PC, Instr, MemWrite, DataAdr,
 			   WriteData, ReadData);
-   imem imem (PC, Instr);
-   dmem dmem (clk, MemWrite, DataAdr, WriteData, ReadData);
+   imem imem (PC, Instr); //instruction memory
+   dmem dmem (clk, MemWrite, DataAdr, WriteData, ReadData); //data memory
    
 endmodule // top
 
+//memory to store the instructions, 32 bits long
 module imem (input  logic [31:0] a,
 	     output logic [31:0] rd);
    
@@ -292,19 +294,19 @@ module imem (input  logic [31:0] a,
    
 endmodule // imem
 
-module dmem (input  logic        clk, we,
+module dmem (input  logic clk, we, //data memory
 	     input  logic [31:0] a, wd,
 	     output logic [31:0] rd);
    
    logic [31:0] 		 RAM[255:0];
    
-   assign rd = RAM[a[31:2]]; // word aligned
+   assign rd = RAM[a[31:2]]; // word aligned, alligned to get rid of the last 2 bytes because you don't care about them.
    always_ff @(posedge clk)
-     if (we) RAM[a[31:2]] <= wd;
+     if (we) RAM[a[31:2]] <= wd; //if write enable is true, accesses the 32 bit word aligned address in the RAM, and assignes it equal to the 32 bit value wd. 
    
 endmodule // dmem
 
-module alu (input  logic [31:0] a, b,
+module alu (input  logic [31:0] a, b, //for doing operations and comparisons based on control logic and input logic from reg file.
             input  logic [2:0] 	alucontrol,
             output logic [31:0] result,
             output logic 	zero);
@@ -329,11 +331,11 @@ module alu (input  logic [31:0] a, b,
      endcase
 
    assign zero = (result == 32'b0);
-   assign v = ~(alucontrol[0] ^ a[31] ^ b[31]) & (a[31] ^ sum[31]) & isAddSub;
+   assign v = ~(alucontrol[0] ^ a[31] ^ b[31]) & (a[31] ^ sum[31]) & isAddSub; //logic to handle overflows 
    
 endmodule // alu
 
-module regfile (input  logic        clk, 
+module regfile (input  logic clk, //logic that makes the register file.
 		input  logic 	    we3, 
 		input  logic [4:0]  a1, a2, a3, 
 		input  logic [31:0] wd3, 
@@ -346,6 +348,7 @@ module regfile (input  logic        clk,
    // write third port on rising edge of clock (A3/WD3/WE3)
    // register 0 hardwired to 0
 
+    //code that implements register file quickly and easily.
    always_ff @(posedge clk)
      if (we3) rf[a3] <= wd3;	
 
