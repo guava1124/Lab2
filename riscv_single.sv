@@ -40,7 +40,7 @@ module testbench();
    initial
      begin
 	string memfilename;
-        memfilename = {"../riscvtest/riscvtest.memfile"};
+        memfilename = {"../proj1Tests/testing/xor.memfile"}; //../riscvtest/riscvtest.memfile
         $readmemh(memfilename, dut.imem.RAM);
      end
 
@@ -109,10 +109,10 @@ module controller (input  logic [6:0] op, //controller instantiates the controll
    logic [1:0] ALUOp;
    logic Branch;
    
-   maindec md (op, ResultSrc, MemWrite, Branch,
+   maindec md (op, ResultSrc, MemWrite, Branch, //instantiates the main decoder module
 	       ALUSrc, RegWrite, Jump, ImmSrc, ALUOp);
-   aludec ad (op[5], funct3, funct7b5, ALUOp, ALUControl);
-   assign PCSrc = Branch & (Zero ^ funct3[0]) | Jump;
+   aludec ad (op[5], funct3, funct7b5, ALUOp, ALUControl); //instantiates the alu decoder module
+   assign PCSrc = Branch & (Zero ^ funct3[0]) | Jump; //logic for deciding if the pc uses the +4 or branch option
    
 endmodule // controller
 
@@ -126,18 +126,21 @@ module maindec (input  logic [6:0] op, //main decoder takes logic and makes an 1
    
    logic [10:0] 		   controls;
    
+   //assigns continuously control signals based on the opcode input.
    assign {RegWrite, ImmSrc, ALUSrc, MemWrite,
 	   ResultSrc, Branch, ALUOp, Jump} = controls;
    
    always_comb
      case(op)
+     //we will need to make sure this is all 12bits long because we are adding another bit for the immediates.
        // RegWrite_ImmSrc_ALUSrc_MemWrite_ResultSrc_Branch_ALUOp_Jump
        7'b0000011: controls = 11'b1_00_1_0_01_0_00_0; // lw
-       7'b0100011: controls = 11'b0_01_1_1_00_0_00_0; // sw
+       7'b0100011: controls = 11'b0_01_1_1_00_0_00_0; // sw or maybe all of s types?
        7'b0110011: controls = 11'b1_xx_0_0_00_0_10_0; // R–type
        7'b1100011: controls = 11'b0_10_0_0_00_1_01_0; // beq
        7'b0010011: controls = 11'b1_00_1_0_00_0_10_0; // I–type ALU
        7'b1101111: controls = 11'b1_11_0_0_10_0_00_1; // jal
+       //7'b0010111: controls = 11'b1_100_1_0_00_0_00_0 //auipc
        default: controls = 11'bx_xx_x_x_xx_x_xx_x; // ???
      endcase // case (op)
    
@@ -151,7 +154,7 @@ module aludec (input  logic       opb5, //alu decoder takes in logic from instru
    
    logic 			  RtypeSub;
    
-   assign RtypeSub = funct7b5 & opb5; // TRUE for R–type subtract
+   assign RtypeSub = funct7b5 & opb5; // TRUE for checking if there is an R–type subtraction
    always_comb
      case(ALUOp)
        2'b00: ALUControl = 3'b000; // addition
@@ -164,6 +167,7 @@ module aludec (input  logic       opb5, //alu decoder takes in logic from instru
 		  3'b010: ALUControl = 3'b101; // slt, slti
 		  3'b110: ALUControl = 3'b011; // or, ori
 		  3'b111: ALUControl = 3'b010; // and, andi
+      3'b100: ALUControl = 3'b100; //xor, xori
 		  default: ALUControl = 3'bxxx; // ???
 		endcase // case (funct3)       
      endcase // case (ALUOp)
@@ -194,13 +198,13 @@ module datapath (input logic clk, reset,
    adder  pcaddbranch (PC, ImmExt, PCTarget);
    mux2 #(32)  pcmux (PCPlus4, PCTarget, PCSrc, PCNext);
    // register file logic
-   regfile  rf (clk, RegWrite, Instr[19:15], Instr[24:20],
+   regfile  rf (clk, RegWrite, Instr[19:15], Instr[24:20], //instantiation of the register file
 	       Instr[11:7], Result, SrcA, WriteData);
    extend  ext (Instr[31:7], ImmSrc, ImmExt);
    // ALU logic
-   mux2 #(32)  srcbmux (WriteData, ImmExt, ALUSrc, SrcB);
-   alu  alu (SrcA, SrcB, ALUControl, ALUResult, Zero);
-   mux3 #(32) resultmux (ALUResult, ReadData, PCPlus4,ResultSrc, Result);
+   mux2 #(32)  srcbmux (WriteData, ImmExt, ALUSrc, SrcB); //mux for using either id2 or immediate extension
+   alu  alu (SrcA, SrcB, ALUControl, ALUResult, Zero); 
+   mux3 #(32) resultmux (ALUResult, ReadData, PCPlus4,ResultSrc, Result); //mux for the output of the result signal Needs to have a connection from PC Target so that we can use the result for AUIPC going to wd3, then we make the pc mux go to pc + 4 becasue jump aint ready yet.
 
 endmodule // datapath
 
@@ -225,6 +229,8 @@ module extend (input  logic [31:7] instr, //module for sign extension operation,
        2'b10:  immext = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};       
        // J−type (jal)
        2'b11:  immext = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
+       //add U-type here needs to make it 3 bit long
+       //will require changing all the way up.
        default: immext = 32'bx; // undefined
      endcase // case (immsrc)
    
@@ -288,7 +294,7 @@ endmodule // top
 module imem (input  logic [31:0] a,
 	     output logic [31:0] rd);
    
-   logic [31:0] 		 RAM[63:0];
+   logic [31:0] 		 RAM[255:0]; //old one RAM[63:0];
    
    assign rd = RAM[a[31:2]]; // word aligned
    
@@ -326,7 +332,8 @@ module alu (input  logic [31:0] a, b, //for doing operations and comparisons bas
        3'b001:  result = sum;         // subtract
        3'b010:  result = a & b;       // and
        3'b011:  result = a | b;       // or
-       3'b101:  result = sum[31] ^ v; // slt       
+       3'b101:  result = sum[31] ^ v; // slt  
+       3'b100:  result = a ^ b;       // xor
        default: result = 32'bx;
      endcase
 
