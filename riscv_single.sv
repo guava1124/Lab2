@@ -24,6 +24,7 @@
 //   lw	          0000011   010       immediate
 //   sw           0100011   010       immediate
 //   jal          1101111   immediate immediate
+//   lui          0110111   immediate immediate
 
 module testbench();
 
