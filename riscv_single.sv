@@ -125,7 +125,7 @@ module maindec (input  logic [6:0] op, //main decoder takes logic and makes an 1
 		output logic [2:0] ImmSrc,
 		output logic [1:0] ALUOp);
    
-   logic [10:0] 		   controls;
+   logic [11:0] 		   controls;
    
    //assigns continuously control signals based on the opcode input.
    assign {RegWrite, ImmSrc, ALUSrc, MemWrite,
@@ -135,14 +135,14 @@ module maindec (input  logic [6:0] op, //main decoder takes logic and makes an 1
      case(op)
      //we will need to make sure this is all 12bits long because we are adding another bit for the immediates.
        // RegWrite_ImmSrc_ALUSrc_MemWrite_ResultSrc_Branch_ALUOp_Jump
-       7'b0000011: controls = 11'b1_000_1_0_01_0_00_0; // lw
-       7'b0100011: controls = 11'b0_001_1_1_00_0_00_0; // sw or maybe all of s types?
-       7'b0110011: controls = 11'b1_xxx_0_0_00_0_10_0; // R–type
-       7'b1100011: controls = 11'b0_010_0_0_00_1_01_0; // beq
-       7'b0010011: controls = 11'b1_000_1_0_00_0_10_0; // I–type ALU
-       7'b1101111: controls = 11'b1_011_0_0_10_0_00_1; // jal
+       7'b0000011: controls = 12'b1_000_1_0_01_0_00_0; // lw
+       7'b0100011: controls = 12'b0_001_1_1_00_0_00_0; // sw or maybe all of s types?
+       7'b0110011: controls = 12'b1_xxx_0_0_00_0_10_0; // R–type
+       7'b1100011: controls = 12'b0_010_0_0_00_1_01_0; // beq
+       7'b0010011: controls = 12'b1_000_1_0_00_0_10_0; // I–type ALU
+       7'b1101111: controls = 12'b1_011_0_0_10_0_00_1; // jal
        //7'b0010111: controls = 11'b1_100_1_0_00_0_00_0 //auipc
-       default: controls = 11'bx_xxx_x_x_xx_x_xx_x; // ???
+       default: controls = 12'bx_xxx_x_x_xx_x_xx_x; // ???
      endcase // case (op)
    
 endmodule // maindec
@@ -160,7 +160,8 @@ module aludec (input  logic       opb5, //alu decoder takes in logic from instru
      case(ALUOp)
        2'b00: ALUControl = 3'b000; // addition
        2'b01: ALUControl = 3'b001; // subtraction
-       default: case(funct3) // R–type or I–type ALU
+       2'b11: ALUControl = 3'b110; // LUI
+       2'b10: case(funct3) // R–type or I–type ALU
 		  3'b000: if (RtypeSub)
 		    ALUControl = 3'b001; // sub
 		  else
@@ -337,6 +338,7 @@ module alu (input  logic [31:0] a, b, //for doing operations and comparisons bas
        3'b011:  result = a | b;       // or
        3'b101:  result = sum[31] ^ v; // slt  
        3'b100:  result = a ^ b;       // xor
+       3'b110:  result = b;           //lui
        default: result = 32'bx;
      endcase
 
@@ -366,4 +368,3 @@ module regfile (input  logic clk, //logic that makes the register file.
    assign rd2 = (a2 != 0) ? rf[a2] : 0;
    
 endmodule // regfile
-
