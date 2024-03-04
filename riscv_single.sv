@@ -117,15 +117,17 @@ module controller (input  logic [6:0] op, //controller instantiates the controll
 
     //might need to be in a comb logic block?
     //checks beq or bne and jal and branches on successful compare
-    if((Branch & (Zero ^ funct3[0])) == 1 | (Jump & op == 7'b1101111) == 1 | (Branch & compareSuccess)){ //logic for deciding if the pc uses the +4 or branch option if branch instruction is detected for branchsignal, & with zero check or if jump is flagged, then it will use different pc source
-      assign PCSrc = 2'b01; 
-    }
-    else if((Jump & op == 7'b1100111) == 1){ //checks for jalr
-      assign PCSrc = 2'b10; 
-    }
-    else{ //just do pc + 4 on a failed check branch or something
-      assign PCSrc = 2'b00;
-    }
+    always_comb
+    begin
+      if((Branch & (Zero ^ funct3[0])) == 1 | (Jump & op == 7'b1101111) == 1 | (Branch & compareSuccess)) //logic for deciding if the pc uses the +4 or branch option if branch instruction is detected for branchsignal, & with zero check or if jump is flagged, then it will use different pc source
+        PCSrc = 2'b01; 
+      
+      else if((Jump & op == 7'b1100111) == 1) //checks for jalr
+        PCSrc = 2'b10; 
+    
+      else //just do pc + 4 on a failed check branch or something
+        PCSrc = 2'b00;
+    end
    
    //{instr[31:12], {12{0}}}
 
@@ -301,7 +303,7 @@ module mux2 #(parameter WIDTH = 8)
 endmodule // mux2
 
 module mux4 #(parameter WIDTH = 8)
-   (input  logic [WIDTH-1:0] d0, d1, d2, d3 //d3(novalue) = 2'bxx, d2(PCPlus4) = 2'b10, d1(ReadData) = 2'b01, d0(ALUResult) = 2'b00 for the resultMux
+   (input  logic [WIDTH-1:0] d0, d1, d2, d3, //d3(novalue) = 2'bxx, d2(PCPlus4) = 2'b10, d1(ReadData) = 2'b01, d0(ALUResult) = 2'b00 for the resultMux
     input logic [1:0] s, //2bit source logic
     output logic [WIDTH-1:0] y);
    
