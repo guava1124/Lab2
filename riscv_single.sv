@@ -40,7 +40,7 @@ module testbench();
    initial
      begin
 	string memfilename;
-        memfilename = {"../proj1Tests/testing/xor.memfile"}; //../riscvtest/riscvtest.memfile
+        memfilename = {"../proj1Tests/testing/slti.memfile"}; //../riscvtest/riscvtest.memfile
         $readmemh(memfilename, dut.imem.RAM);
      end
 
@@ -79,19 +79,19 @@ module riscvsingle (input logic clk, reset, //just under top of the modules, ins
 		    output logic [31:0] ALUResult, WriteData,
 		    input  logic [31:0] ReadData);
    
-   logic ALUSrc, RegWrite, Jump, Zero, compareSuccess;
+   logic ALUSrc, RegWrite, Jump, Zero, v, n, cout;
    logic [1:0] ResultSrc, PCSrc;
    logic [2:0] ImmSrc;
    logic [3:0] ALUControl;
    
-   controller c (Instr[6:0], Instr[14:12], Instr[30], Zero, compareSuccess,
+   controller c (Instr[6:0], Instr[14:12], Instr[30], Zero, v, n, cout,
 		 ResultSrc, MemWrite, PCSrc,
 		 ALUSrc, RegWrite, Jump,
 		 ImmSrc, ALUControl);
    datapath dp (clk, reset, ResultSrc, PCSrc,
 		ALUSrc, RegWrite,
 		ImmSrc, ALUControl,
-		Zero, compareSuccess, PC, Instr,
+		Zero, v, n, cout, PC, Instr,
 		ALUResult, WriteData, ReadData);
    
 endmodule // riscvsingle
@@ -99,7 +99,7 @@ endmodule // riscvsingle
 module controller (input  logic [6:0] op, //controller instantiates the controller logic, along with the main decoder and alu decoder
 		   input  logic [2:0] funct3,
 		   input  logic       funct7b5,
-		   input  logic       Zero, compareSuccess,
+		   input  logic       Zero, v, n, cout,
 		   output logic [1:0] ResultSrc,
 		   output logic       MemWrite,
 		   output logic [1:0] PCSrc,
@@ -113,13 +113,14 @@ module controller (input  logic [6:0] op, //controller instantiates the controll
    
    maindec md (op, ResultSrc, MemWrite, Branch, //instantiates the main decoder module
 	       ALUSrc, RegWrite, Jump, ImmSrc, ALUOp);
-   aludec ad (op[5], funct3, funct7b5, ALUOp, ALUControl); //instantiates the alu decoder module
+   aludec ad (op[5], funct3, funct7b5, ALUOp, op, ALUControl); //instantiates the alu decoder module
 
-    //might need to be in a comb logic block?
+
     //checks beq or bne and jal and branches on successful compare
     always_comb
     begin
-      if((Branch & (Zero ^ funct3[0])) == 1 | (Jump & op == 7'b1101111) == 1 | (Branch & compareSuccess)) //logic for deciding if the pc uses the +4 or branch option if branch instruction is detected for branchsignal, & with zero check or if jump is flagged, then it will use different pc source
+      //checks bne and beq, jal, blt, bge, bltu, bgeu
+      if((Branch & (funct3 == 3'b000 | funct3 == 3'b001) & (Zero ^ funct3[0])) == 1 | (Jump & op == 7'b1101111) == 1 | (funct3 == 3'b100 & Branch & (n ^ v)) | (funct3 == 3'b101 & Branch & (~(n ^ v) | Zero)) | (funct3 == 3'b110 & Branch & ~cout) | (funct3 == 3'b111 & Branch & (cout | Zero))) //logic for deciding if the pc uses the +4 or branch option if branch instruction is detected for branchsignal, & with zero check or if jump is flagged, then it will use different pc source
         PCSrc = 2'b01; 
       
       else if((Jump & op == 7'b1100111) == 1) //checks for jalr
@@ -141,7 +142,7 @@ module maindec (input  logic [6:0] op, //main decoder takes logic and makes an 1
 		output logic [2:0] ImmSrc,
 		output logic [1:0] ALUOp);
    
-   logic [10:0] 		   controls;
+   logic [11:0] 		   controls;
    
    //assigns continuously control signals based on the opcode input.
    assign {RegWrite, ImmSrc, ALUSrc, MemWrite,
@@ -157,6 +158,7 @@ module maindec (input  logic [6:0] op, //main decoder takes logic and makes an 1
        7'b1100011: controls = 12'b0_010_0_0_00_1_01_0; // beq
        7'b0010011: controls = 12'b1_000_1_0_00_0_10_0; // I–type ALU
        7'b1101111: controls = 12'b1_011_0_0_10_0_00_1; // jal
+       7'b0110111: controls = 12'b1_100_1_0_00_0_11_0; // lui
        //7'b0010111: controls = 12'b1_100_0_0_11_0_xx_0 //auipc
        default: controls = 12'bx_xxx_x_x_xx_x_xx_x; // ???
      endcase // case (op)
@@ -167,9 +169,11 @@ module aludec (input  logic       opb5, //alu decoder takes in logic from instru
 	       input  logic [2:0] funct3,
 	       input  logic 	  funct7b5,
 	       input  logic [1:0] ALUOp,
+         input  logic [6:0] op,
 	       output logic [3:0] ALUControl);
    
    logic 			  RtypeSub;
+   logic        SraType;
    
    assign RtypeSub = funct7b5 & opb5; // TRUE for checking if there is an R–type subtraction
    assign SraType = funct7b5; // TRUE for checking if there is an sra type in the R-type or I-types
@@ -177,12 +181,10 @@ module aludec (input  logic       opb5, //alu decoder takes in logic from instru
      case(ALUOp)
        2'b00: ALUControl = 4'b0000; // addition for non-regular R or I types
        2'b01: ALUControl = 4'b0001; // subtraction for branch instructions
-       2'b11: case(funct3) //branch type alu stuff that's not beq or bne
-              3'b100:  ALUControl = 4'b1001; // blt
-              3'b101:  ALUControl = 4'b1010; // bge
-              3'b110:  ALUControl = 4'b1011; // bltu
-              3'b111:  ALUControl = 4'b1100; // bgeu
-              default: ALUControl = 4'bxxxx; // ???
+       2'b11: case(op) //branch type alu stuff that's not beq or bne
+              7'b0110111: ALUControl = 4'b1001; //lui instruction
+              //7'b0010111: ALUControl = 4'b1001; //auipc instruction, not needed because you can use pctarget instead for the result
+              default: ALUControl = 3'bxxx; // ???
               endcase
        default: case(funct3) // R–type or I–type ALU
                   3'b000: if (RtypeSub)
@@ -190,7 +192,7 @@ module aludec (input  logic       opb5, //alu decoder takes in logic from instru
                   else
                     ALUControl = 4'b0000; // add, addi
                   3'b010: ALUControl = 4'b0101; // slt, slti, funct3 2
-                  3'b011: ALUControl = 4'b0101; // sltu, sltiu, funct3 3
+                  3'b011: ALUControl = 4'b1011; // sltu, sltiu, funct3 3
                   3'b110: ALUControl = 4'b0011; // or, ori, funct3 6
                   3'b111: ALUControl = 4'b0010; // and, andi, funct3 7
                   3'b100: ALUControl = 4'b0100; //xor, xori, funct3 4
@@ -213,7 +215,7 @@ module datapath (input logic clk, reset,
 		 input  logic 	     RegWrite,
 		 input  logic [2:0]  ImmSrc,
 		 input  logic [3:0]  ALUControl,
-		 output logic 	     Zero, compareSuccess,
+		 output logic 	     Zero, v, n, cout,
 		 output logic [31:0] PC,
 		 input  logic [31:0] Instr,
 		 output logic [31:0] ALUResult, WriteData,
@@ -236,7 +238,7 @@ module datapath (input logic clk, reset,
    extend  ext (Instr[31:7], ImmSrc, ImmExt);
    // ALU logic
    mux2 #(32)  srcbmux (WriteData, ImmExt, ALUSrc, SrcB); //mux for using either rd2 or immediate extension
-   alu  alu (SrcA, SrcB, ALUControl, ALUResult, Zero, compareSuccess); 
+   alu  alu (SrcA, SrcB, ALUControl, ALUResult, Zero, v, n, cout); 
    //the following are the required resultsrc values for the mux: //(PCTarget) = 2'b11, (PCPlus4) = 2'b10, (ReadData) = 2'b01, (ALUResult) = 2'b00 for the resultMux
    mux4 #(32) resultmux (ALUResult, ReadData, PCPlus4, PCTarget, ResultSrc, Result); //mux for the output of the result signal Needs to have a connection from PC Target so that we can use the result for AUIPC going to wd3, then we make the pc mux go to pc + 4 becasue jump aint ready yet.
 
@@ -264,7 +266,7 @@ module extend (input  logic [31:7] instr, //module for sign extension operation,
        // J−type (jal)
        3'b011:  immext = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
        // U-type
-       3'b100:  immext = {instr[31:12], {12{0}}}; //gets the top 20 bits, and sets the lower 12 bits to 0
+       3'b100:  immext = {instr[31:12], 12'h000}; //gets the top 20 bits, and sets the lower 12 bits to 0 //oldversion {instr[31:12], {12}{1'b0}};
        //default case
        default: immext = 32'bx; // undefined
      endcase // case (immsrc)
@@ -302,6 +304,15 @@ module mux2 #(parameter WIDTH = 8)
    
 endmodule // mux2
 
+module mux3 #(parameter WIDTH = 8)
+   (input  logic [WIDTH-1:0] d0, d1, d2,
+    input logic [1:0] 	     s,
+    output logic [WIDTH-1:0] y);
+   
+  assign y = s[1] ? d2 : (s[0] ? d1 : d0);
+   
+endmodule // mux3
+
 module mux4 #(parameter WIDTH = 8)
    (input  logic [WIDTH-1:0] d0, d1, d2, d3, //d3(novalue) = 2'bxx, d2(PCPlus4) = 2'b10, d1(ReadData) = 2'b01, d0(ALUResult) = 2'b00 for the resultMux
     input logic [1:0] s, //2bit source logic
@@ -329,7 +340,7 @@ endmodule // top
 module imem (input  logic [31:0] a,
 	     output logic [31:0] rd);
    
-   logic [31:0] 		 RAM[255:0]; //old one RAM[63:0];
+   logic [31:0] 		 RAM[511:0]; //RAM[255:0]; //old one RAM[63:0];
    
    assign rd = RAM[a[31:2]]; // word aligned
    
@@ -350,15 +361,14 @@ endmodule // dmem
 module alu (input  logic [31:0] a, b, //for doing operations and comparisons based on control logic and input logic from reg file.
             input  logic [3:0] 	alucontrol,
             output logic [31:0] result,
-            output logic 	zero, compareSuccess
+            output logic 	zero, v, n, cout //zerobit, overflowflag, negativeflag, coutflag
             );
 
    logic [31:0] 	       condinvb, sum;
-   logic 		       v;              // overflow
    logic 		       isAddSub;       // true when is add or subtract operation
 
    assign condinvb = alucontrol[0] ? ~b : b; //if alucontrol bit 0 is 1, then condinvb is set to the negation of the b input
-   assign sum = a + condinvb + alucontrol[0]; //does twos complement addition, if alucontrol[0] is 1 then it adds the 1 bit for the negative twos complement number, else it adds 0 so it just adds normally
+   assign {cout, sum} = a + condinvb + alucontrol[0]; //does twos complement addition, if alucontrol[0] is 1 then it adds the 1 bit for the negative twos complement number(subtraction), else it adds 0 so it just adds normally, //carry out bit is high if the carry out of the adder is 1 and the ALU is adding or subtracting
    assign isAddSub = ~alucontrol[2] & ~alucontrol[1] | //if alu control is 00x or x01 then it's an add or subtract signal
                      ~alucontrol[1] & alucontrol[0];   
 
@@ -370,30 +380,20 @@ module alu (input  logic [31:0] a, b, //for doing operations and comparisons bas
        4'b0011:  result = a | b;       // or 3
        4'b0101:  result = sum[31] ^ v; // slt 5 //checks if the result of the twos complement sum is positive or negative, then xors that sign bit with V which is 1 if there was an overflow?
        4'b0100:  result = a ^ b;       // xor 4
-       4'b0110:  result = a >>> b;      // sra 6 >>> is supossedly arithmetic shifts while >> is logical
-       4'b0111:  result = a << b;      // sll 7
-       4'b1000:  result = a >> b;      // srl 8
-       4'b1001:  if(~(a[31] == 1'b1 | b[31] == 1'b1) | (a[31] == 1'b1 & b[31] == 1'b1))                  //blt 9    //if neither is negative or both are negative, do a regular check
-                  result = a < b;       
-                else if((a[31] == 1'b1 & b[31] == 1'b0)) //if first is negative and second is not, it's always less than
-                  result = 32'd1;
-                else //if first is not negative and the second is, it's always not less than
-                  result = 32'd0;
-       4'b1010:  if(~(a[31] == 1'b1 | b[31] == 1'b1) | (a[31] == 1'b1 & b[31] == 1'b1))                  //bge 10   //if neither is negative or both are negative, do a regular check
-                  result = a >= b;       
-                else if((a[31] == 1'b1 & b[31] == 1'b0)) //if first is negative and second is not, it's always not greater than or equal to
-                  result = 32'd0;
-                else //if first is not negative and the second is, it's always greater than or equal to
-                  result = 32'd1;
-       4'b1011: result = a < b;        //bltu (dont care about the sign)
-       4'b1100: result = a >= b;       //bgeu (dont care about the sign)
+       4'b0110:  result = $signed(a) >>> b[4:0];     // sra 6 >>> is supossedly arithmetic shifts while >> is logical
+       4'b0111:  result = a << b[4:0];      // sll 7
+       4'b1000:  result = a >> b[4:0];      // srl 8
+       4'b1001:  result = b;           // lui
+       4'b1011:  result = (b[31] == 1 & a[31] != 1) ? 1 : (b[31] == 1 & a[31] == 1) ? (sum[31]) : (b[31] == 0 & a[31] == 1) ? 0 : (sum[31] ^ v); //sltu since 1100 alucontrol[0] = 0 this means it will add
+       
        default: result = 32'bx;
      endcase
 
-   assign compareSuccess = (result == 32'd1);
+   //assign compareSuccess = (result == 32'd1);
    assign zero = (result == 32'b0); //assigns zero to 1 if the result is zero, 0 otherwise.
    assign v = ~(alucontrol[0] ^ a[31] ^ b[31]) & (a[31] ^ sum[31]) & isAddSub; //logic to handle overflows //first part results in 1 if there is no overflow, 0 otherwise, and is anded with the overflow result of the addition detection in the 2nd part and is anded with isaddsub to ensure this checking only during addition and subtraction
-   
+   assign n = (result[31] == 1); //means that the result is negative
+
 endmodule // alu
 
 module regfile (input  logic clk, //logic that makes the register file.
