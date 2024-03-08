@@ -40,7 +40,7 @@ module testbench();
    initial
      begin
 	string memfilename;
-        memfilename = {"../proj1Tests/testing/slti.memfile"}; //../riscvtest/riscvtest.memfile
+        memfilename = {"../proj1Tests/testing/sw.memfile"}; //../riscvtest/riscvtest.memfile
         $readmemh(memfilename, dut.imem.RAM);
      end
 
@@ -56,8 +56,8 @@ module testbench();
      begin
 	clk <= 1; # 5; clk <= 0; # 5;
      end
-
-   // check results
+  /*
+   // check results, used for the riscv test debugging, not needed except for that.
    always @(negedge clk)
      begin
 	if(MemWrite) begin
@@ -70,6 +70,7 @@ module testbench();
            end
 	end
      end
+  */
 endmodule // testbench
 
 module riscvsingle (input logic clk, reset, //just under top of the modules, instantiates logic modules for controllers, and datapath signals 
@@ -159,7 +160,8 @@ module maindec (input  logic [6:0] op, //main decoder takes logic and makes an 1
        7'b0010011: controls = 12'b1_000_1_0_00_0_10_0; // I–type ALU
        7'b1101111: controls = 12'b1_011_0_0_10_0_00_1; // jal
        7'b0110111: controls = 12'b1_100_1_0_00_0_11_0; // lui
-       //7'b0010111: controls = 12'b1_100_0_0_11_0_xx_0 //auipc
+       7'b0010111: controls = 12'b1_100_x_0_11_0_xx_0;  //auipc
+       7'b1100111: controls = 12'b1_000_1_0_10_0_00_1;  //jalr
        default: controls = 12'bx_xxx_x_x_xx_x_xx_x; // ???
      endcase // case (op)
    
@@ -346,9 +348,9 @@ module imem (input  logic [31:0] a,
    
 endmodule // imem
 
-module dmem (input  logic clk, we, //data memory
-	     input  logic [31:0] a, wd,
-	     output logic [31:0] rd);
+module dmem (input  logic clk, we, //data memory //clk, write enable
+	     input  logic [31:0] a, wd, //data address, writedata
+	     output logic [31:0] rd); //read data
    
    logic [31:0] 		 RAM[255:0];
    
