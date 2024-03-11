@@ -40,7 +40,7 @@ module testbench();
    initial
      begin
 	string memfilename;
-        memfilename = {"../proj1Tests/testing/sw.memfile"}; //../riscvtest/riscvtest.memfile //../proj1Tests/testing/sb.memfile
+        memfilename = {"../riscvtest/riscvtest.memfile"}; //../riscvtest/riscvtest.memfile //../proj1Tests/testing/sb.memfile
         $readmemh(memfilename, dut.imem.RAM);
      end
 
@@ -364,10 +364,10 @@ module dmem (input  logic clk, //data memory //clk
    
    logic [31:0] 		 RAM[511:0]; //RAM[255:0];
 
-   logic [7:0] writebyte; //logic for writing
-   logic [15:0] writehalf;
-   logic [31:0] writeword, byteMask;
+   //logic for writing
+   logic [3:0] byteMask;
    logic [3:0] selectionBits;
+   logic [31:0] writeword;
 
    logic [7:0] tempByte; //for reading
    logic [15:0] tempHalfWord; //for reading
@@ -375,15 +375,12 @@ module dmem (input  logic clk, //data memory //clk
    
    assign ReadData = RAM[a[31:2]]; //data read, lw, word aligned, alligned to get rid of the last 2 bytes because you don't care about them.
 
-   //always_ff @(posedge clk)
-     //if (we != 4'b0000) RAM[a[31:2]] <= wd; //data store, sw, if write enable is true, accesses the 32 bit word aligned address in the RAM, and assignes it equal to the 32 bit value wd. 
-    
     //read stuff part
     always_comb
     case (funct3)
       3'b000: RD = {{24{tempByte[7]}}, tempByte}; //lb
       3'b100: RD = {{24{0'b0}}, tempByte}; //lbu
-      3'b001: RD = {{16{tempByte[7]}}, tempHalfWord}; //lh
+      3'b001: RD = {{16{tempHalfWord[15]}}, tempHalfWord}; //lh
       3'b101: RD = {{16{0'b0}}, tempHalfWord}; //lhu
       3'b010: RD = ReadData; //lw
       default: RD = 32'bx; //don't care
@@ -409,39 +406,34 @@ module dmem (input  logic clk, //data memory //clk
     //write stuff part
     assign selectionBits = {funct3[1:0], a[1:0]};
 
-    //still reads the whole word, can we just select a byte from memory?
+    //still reads the whole word, but we just select a byte to write to per check
     always_ff @(posedge clk)
       if(we != 0) begin
-
-
-        case (selectionBits[3:2])
-        2'b00: RAM[a[31:0]] <= writebyte; //write to mem with just the byte
-        2'b01: RAM[a[31:1]] <= writehalf; //write to mem with just the half
-        2'b10: RAM[a[31:2]] <= writeword; //write to mem with the whole word
-        default: RAM[a[31:2]] <= writeword;
-        endcase
-
+        if(byteMask[0]) RAM[a[31:2]][7:0] <= writeword[7:0];
+        if(byteMask[1]) RAM[a[31:2]][15:8] <= writeword[15:8];
+        if(byteMask[2]) RAM[a[31:2]][23:16] <= writeword[23:16]; 
+        if(byteMask[3]) RAM[a[31:2]][31:24] <= writeword[31:24];
       end
 
    //select the correct wd based on the we
    always_comb
      case (selectionBits)
        //4'b0000: //no byte write //0
-       4'b0000: begin writeword = wd[7:0]; //byte 0001 written //1
-                byteMask = 32'h00000011; end
-       4'b0001: begin writeword = wd[7:0]; //byte 0010 being written //2
-                byteMask = 32'h00001100; end
-       4'b0010: begin writeword = wd[7:0]; //byte 0100 being written //4
-                byteMask = 32'h00110000; end
-       4'b0011: begin writeword = wd[7:0]; //byte 1000 being written //8
-                byteMask = 32'h11000000; end
-       4'b0100: begin writeword = wd[15:0]; //lower two bytes 0011 being written //3
-                byteMask = 32'h00001111; end
-       4'b0110: begin writeword = wd[15:0]; //upper two bytes 1100 being written //12
-                byteMask = 32'h11110000; end
+       4'b0000: begin writeword = {24'b0, wd[7:0]}; //byte 0001 written //1
+                byteMask = 4'b0001; end
+       4'b0001: begin writeword = {16'b0, wd[7:0], 8'b0}; //byte 0010 being written //2
+                byteMask = 4'b0010; end
+       4'b0010: begin writeword = {8'b0, wd[7:0], 16'b0}; //byte 0100 being written //4
+                byteMask = 4'b0100; end
+       4'b0011: begin writeword = {wd[7:0], 24'b0}; //byte 1000 being written //8
+                byteMask = 4'b1000; end
+       4'b0100: begin writeword = {16'b0, wd[15:0]}; //lower two bytes 0011 being written //3
+                byteMask = 4'b0011; end
+       4'b0110: begin writeword = {wd[15:0], 16'b0}; //upper two bytes 1100 being written //12
+                byteMask = 4'b1100; end
        4'b1000: begin writeword = wd[31:0]; //whole word being written
-                byteMask = 32'h11111111; end
-       default: writeword = wd; //catches all the other cases that shouldn't happen
+                byteMask = 4'b1111; end
+       default: byteMask = 4'bx; //catches all the other cases that shouldn't happen
      endcase
 
     /*
@@ -476,51 +468,6 @@ module dmem (input  logic clk, //data memory //clk
      */
    
 endmodule // dmem
-
-/*
-module subWordByteMask (input logic [31:0] writeData, address, //rd2 reg, ALUResult
-                     input logic [2:0] funct3,
-                     output logic [3:0] byteMask);
-
-  assign byteMask = {funct3[1:0], address[1:0]};
-
-endmodule // subWordWrite
-
-
-module subWordRead (input logic [31:0] ReadData, address, //read data straight from the dmem
-                    input logic [2:0] funct3,
-                    output logic [31:0] RD);
-                    
-                    logic [7:0]tempByte;
-                    logic [15:0]tempHalfWord;
-   always_comb
-    case (funct3)
-      3'b000: RD = {{24{tempByte[7]}}, tempByte}; //lb
-      3'b100: RD = {{24{0'b0}}, tempByte}; //lbu
-      3'b001: RD = {{16{tempByte[7]}}, tempHalfWord}; //lh
-      3'b101: RD = {{16{0'b0}}, tempHalfWord}; //lhu
-      3'b010: RD = RD; //lw
-      default: RD = 32'bx; //don't care
-    endcase
-
-    always_comb
-    case(address[1:0])
-      2'b00: begin
-             tempByte = ReadData[7:0]; 
-             tempHalfWord = ReadData[15:0];
-      end
-      2'b01: tempByte = ReadData[15:8];
-      2'b10: begin
-             tempByte = ReadData[23:16]; 
-             tempHalfWord = ReadData[31:16];
-      end
-      2'b11: tempByte = ReadData[31:24];
-      default: tempByte = 8'bx;
-    endcase
-
-
-endmodule // subWordRead
-*/
 
 module alu (input  logic [31:0] a, b, //for doing operations and comparisons based on control logic and input logic from reg file.
             input  logic [3:0] 	alucontrol,
